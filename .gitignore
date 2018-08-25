@@ -1,0 +1,7 @@
+/data/
+./rxndiffusion
+*.json
+*.tsv
+*.sbml
+*.pyc
+*/ipynb_checkpoints
