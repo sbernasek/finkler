@@ -7,6 +7,7 @@ import xml.etree.ElementTree as ET
 
 from .io import IO
 from .sbml import SBML
+from .dimensionalize import DimensionedCell
 
 
 class gwData:
@@ -45,6 +46,7 @@ class gwNetwork:
         return {x[1][-2:]: gwSimulation(*x) for x in ps}
 
 
+
 class gwSimulation:
 
     def __init__(self, path, name):
@@ -66,7 +68,9 @@ class gwSimulation:
         edges = self.load_structure(pgen('{:s}_goldstandard.tsv'))
         self.edges = pd.DataFrame(edges, columns=('from', 'to', 'exists'))
         conn = self.load_structure(pgen('{:s}_goldstandard_signed.tsv'))
-        self.connectivity = pd.DataFrame(conn, columns=('from', 'to', 'sign'))
+        conn = pd.DataFrame(conn, columns=('from', 'to', 'sign'))
+        self.connectivity = conn.set_index(keys=['from', 'to'])
+        self.assign_edge_types()
 
         # perturbations
         self.ptb, self.P, self.N = self.load_ptb(pgen('{:s}_dream4_timeseries_perturbations.tsv'))
@@ -119,12 +123,13 @@ class gwSimulation:
 
     @staticmethod
     def load_ptb(path):
-        perturbations = IO.read_tsv(path)
-        pheader = perturbations.pop(0)
-        uperturbations = np.unique(perturbations, axis=0).astype(np.float64)
-        P = len(uperturbations)
-        N = len(perturbations) // P
-        return uperturbations, P, N
+        p = IO.read_tsv(path)
+        pheader = p.pop(0)
+        up, ind = np.unique(p, axis=0, return_index=True)
+        up = up[np.argsort(ind)].astype(np.float64)
+        P = len(up)
+        N = len(p) // P
+        return up, P, N
 
     def load_ts(self, path):
         ts = IO.read_tsv(path)
@@ -147,3 +152,16 @@ class gwSimulation:
         times = x[:, 0, :, :][0, 0, :]
         states = x[:, 1:, :, :]
         return times, states
+
+    def assign_edge_types(self):
+        """ Add edge types to sbml reactions. """
+        for rxn_id, rxn in self.sbml.rxns.items():
+            product = rxn['products']
+            if product != '_void_' and rxn['n_inputs'] > 0:
+                et = {}
+                for mod in rxn['modifiers']:
+                    et[mod] = self.connectivity.loc[(mod, product)].values[0]
+                rxn['edge_types'] = et
+
+    def build_dimensioned_cell(self, **kw):
+        return DimensionedCell.from_sbml(self.sbml, **kw)

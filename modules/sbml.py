@@ -29,19 +29,31 @@ class SBML:
         # get products
         p = node.find(self.base+'listOfProducts')
         p = p.find(self.base+'speciesReference')
-        rxn_dict['products'] = p.attrib['species']
+        product = p.attrib['species']
+        rxn_dict['products'] = product
 
         # get modifiers
         m = node.find(self.base+'listOfModifiers')
         if m is not None:
             m = m.findall(self.base+'modifierSpeciesReference')
+            n_inputs = len(m)
             rxn_dict['modifiers'] = [mod.attrib['species'] for mod in m]
+        else:
+            n_inputs = 0
+        rxn_dict['n_inputs'] = n_inputs
 
         # get parameters
         kl = node.find(self.base+'kineticLaw')
         params = kl.find(self.base+'listOfParameters')
         params = params.findall(self.base+'parameter')
         rxn_dict['parameters'] = {p.attrib['name']: float(p.attrib['value']) for p in params}
+
+        # get edge logic
+        if n_inputs > 1:
+            logic = 'AND'
+            if '+' in rxn_dict['name'].strip('{:s}: '.format(rxn_id)):
+                logic = 'OR'
+            rxn_dict['logic'] = logic
 
         # store rxn dictionary
         self.rxns[rxn_id] = rxn_dict
