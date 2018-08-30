@@ -3,14 +3,16 @@ from os.path import join
 from glob import glob
 import pandas as pd
 import numpy as np
+from functools import reduce
+from operator import add
 import xml.etree.ElementTree as ET
 
 from .io import IO
 from .sbml import SBML
-from .dimensionalize import DimensionedCell
+from .dimensionalize import DimensionedCell, DimensionedSimulation
+from .timeseries import PerturbationTimeSeries
 
-
-class gwData:
+class gnwData:
 
     def __init__(self, path):
         self.path = path
@@ -26,10 +28,10 @@ class gwData:
 
     @staticmethod
     def load_network(network_path, network_id):
-        return gwNetwork(network_path, network_id)
+        return gnwNetwork(network_path, network_id)
 
 
-class gwNetwork:
+class gnwNetwork:
 
     def __init__(self, path, network_id):
         self.path = path
@@ -43,11 +45,10 @@ class gwNetwork:
         get_genotype = lambda x: x.rsplit('/', 1)[-1][:2]
         get_name = lambda x: '_'.join([str(self.network_id), get_genotype(x)])
         ps = [(p, get_name(p)) for p in glob(join(self.path, '*_sim'))]
-        return {x[1][-2:]: gwSimulation(*x) for x in ps}
+        return {x[1][-2:]: gnwSimulation(*x) for x in ps}
 
 
-
-class gwSimulation:
+class gnwSimulation:
 
     def __init__(self, path, name):
         self.path = path
@@ -73,7 +74,8 @@ class gwSimulation:
         self.assign_edge_types()
 
         # perturbations
-        self.ptb, self.P, self.N = self.load_ptb(pgen('{:s}_dream4_timeseries_perturbations.tsv'))
+        ptb_path = pgen('{:s}_dream4_timeseries_perturbations.tsv')
+        self.labels, self.ptb, self.P, self.N = self.load_ptb(ptb_path)
 
         # steady states
         self.ss_rna = self.load_ss(pgen('{:s}_wildtype.tsv'))
@@ -113,13 +115,13 @@ class gwSimulation:
 
     @staticmethod
     def load_norm(path):
-        return IO.read_tsv(path)
+        return float(IO.read_tsv(path)[0][0])
 
     @staticmethod
     def load_ss(path):
         ts = IO.read_tsv(path)
         tsheader = ts.pop(0)
-        return ts
+        return np.array(ts[0], dtype=np.float64)
 
     @staticmethod
     def load_ptb(path):
@@ -129,7 +131,7 @@ class gwSimulation:
         up = up[np.argsort(ind)].astype(np.float64)
         P = len(up)
         N = len(p) // P
-        return up, P, N
+        return pheader, up, P, N
 
     def load_ts(self, path):
         ts = IO.read_tsv(path)
@@ -164,4 +166,19 @@ class gwSimulation:
                 rxn['edge_types'] = et
 
     def build_dimensioned_cell(self, **kw):
+        """ Return dimensionalized network model. """
         return DimensionedCell.from_sbml(self.sbml, **kw)
+
+    def dimensionalize(self, **kw):
+        """ Return dimensionalized simulation. """
+        return DimensionedSimulation(self, **kw)
+
+    def get_timeseries(self):
+        """ Returns timeseries object for plotting. """
+
+        # sort into (r0, p0, ...rN, PN) order
+        ind = np.array(reduce(add, zip(range(4), range(4, 8))))
+
+        return PerturbationTimeSeries(self.t, self.sx[:, ind, :, :])
+
+
