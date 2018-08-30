@@ -22,7 +22,7 @@ class DimensionedSimulation:
         # dimensionalize and un-normalize steady states
         ssr = self.scale_r(gnw_sim.ss_rna_xnoise)
         ssp = self.scale_p(gnw_sim.ss_p_xnoise)
-        ss = np.hstack((ssr, ssp)) / gnw_sim.norm
+        ss = np.hstack((ssr, ssp)) #/ gnw_sim.norm
 
         # rearrange states to simulator order
         ind = np.array(reduce(add, zip(range(4), range(4, 8))))
@@ -127,6 +127,7 @@ class DimensionedCell(Cell):
 
         # add transcription reactions
         for g_id in 'uxyG':
+
             gene = network.genes[g_id]
             p_idx = cell.proteins[g_id]
 
@@ -152,7 +153,7 @@ class DimensionalNetwork:
 
     def __init__(self, rxns, **kw):
         self.genes = {k[0]: DimensionalGene(**kw) for k in rxns.keys() if 'synthesis' in k}
-        self.parse_degradations(rxns)
+        #self.parse_degradations(rxns)
         self.parse_syntheses(rxns)
 
     def parse_degradations(self, rxns):
@@ -174,16 +175,26 @@ class DimensionalGene:
         self.Y = Y
 
     def parse_degradation(self, rxn):
-        self.g0 = rxn['parameters']['delta']/self.T
-        self.k0 = self.g0 * self.X
+        parameters = rxn['parameters']
+        #self.k0 = parameters['max']/self.T
+        #self.g0 = self.k0*self.X
+
+        #self.g0 = rxn['parameters']['delta']/self.T
+        #self.k0 = self.g0 * self.X
 
     def parse_synthesis(self, rxn, rxn_id):
 
         parameters = rxn['parameters']
 
+        self.k0 = parameters['max'] / self.T * self.X
+        self.g0 = self.k0 / self.X
+
         # protein synthesis/degradation
-        self.g1 = parameters['deltaProtein']/self.T
-        self.k1 = self.g1 * self.Y / self.X
+        self.k1 = parameters['maxTranslation'] * self.Y / (self.X * self.T)
+        self.g1 = self.k1 * (self.X / self.Y)
+
+        #self.g1 = parameters['deltaProtein']/self.T
+        #self.k1 = self.g1 * self.Y / self.X
 
         # store modules
         self.num_modules = len([p for p in parameters.keys() if 'numActivators' in p])
@@ -192,6 +203,8 @@ class DimensionalGene:
         # store alpha values
         self.num_alpha = len([p for p in parameters.keys() if 'a_' in p])
         self.alpha = [parameters['a_{:d}'.format(i)] for i in range(self.num_alpha)]
+
+        print(self.k0, self.g0, rxn['name'])
 
     def parse_modules(self, rxn):
         ind, modules = 1, []
@@ -212,9 +225,9 @@ class DimensionalGene:
 
         # get dissociation constants and hill coefficients
         k, n = [], []
-        for ind in range(ind, ind+nI):
-            k.append(p['k_{:d}'.format(ind)])
-            n.append(p['n_{:d}'.format(ind)])
+        for i in range(ind, ind+nI):
+            k.append(p['k_{:d}'.format(i)])
+            n.append(p['n_{:d}'.format(i)])
 
         # re-dimensionalize k
         k = np.array(k, dtype=np.float64) * self.Y
@@ -223,6 +236,5 @@ class DimensionalGene:
         # get modifiers and compile module dictionary
         modifiers = rxn['modifiers'][ind-1:ind+nI-1]
         module_dict = dict(modifiers=modifiers, nA=nA, nD=nD, bindsAsComplex=bindsAsComplex, k=k, n=n)
-
 
         return module_dict
