@@ -45,7 +45,7 @@ class DimensionedSimulation:
     def scale_T(self, t):
         return self.T * t
 
-    def run_perturbation(self, ptb=0, num_trials=3):
+    def run_perturbation(self, ptb=0, num_trials=3, duration=None):
         """
         Run dimensioned simulation of single perturbation.
 
@@ -58,12 +58,14 @@ class DimensionedSimulation:
         """
 
         # define perturbation signal
-        signal = cSquarePulse(t_on=0, t_off=self.duration/2, off=0, on=ptb)
+        if duration is None:
+            duration = self.duration
+        signal = cSquarePulse(t_on=0, t_off=duration/2, off=0, on=ptb)
 
         # run simulation
         ts = self.sim.run(input_function=signal,
                      num_trials=num_trials,
-                     duration=self.duration,
+                     duration=duration,
                      dt=1)
 
         return ts
@@ -78,7 +80,7 @@ class DimensionedSimulation:
         ts = [self.run_perturbation(ptb, num_trials) for ptb in self.ptb]
         self.ts = PerturbationTimeSeries.from_timeseries_list(ts)
 
-    def nondimensionalize(self, normalize=True):
+    def nondimensionalize(self, normalize=False):
 
         # scale time
         nd_t = self.ts.t / self.T
@@ -176,11 +178,6 @@ class DimensionalGene:
 
     def parse_degradation(self, rxn):
         parameters = rxn['parameters']
-        #self.k0 = parameters['max']/self.T
-        #self.g0 = self.k0*self.X
-
-        #self.g0 = rxn['parameters']['delta']/self.T
-        #self.k0 = self.g0 * self.X
 
     def parse_synthesis(self, rxn, rxn_id):
 
@@ -193,9 +190,6 @@ class DimensionalGene:
         self.k1 = parameters['maxTranslation'] * self.Y / (self.X * self.T)
         self.g1 = self.k1 * (self.X / self.Y)
 
-        #self.g1 = parameters['deltaProtein']/self.T
-        #self.k1 = self.g1 * self.Y / self.X
-
         # store modules
         self.num_modules = len([p for p in parameters.keys() if 'numActivators' in p])
         self.parse_modules(rxn)
@@ -203,8 +197,6 @@ class DimensionalGene:
         # store alpha values
         self.num_alpha = len([p for p in parameters.keys() if 'a_' in p])
         self.alpha = [parameters['a_{:d}'.format(i)] for i in range(self.num_alpha)]
-
-        print(self.k0, self.g0, rxn['name'])
 
     def parse_modules(self, rxn):
         ind, modules = 1, []

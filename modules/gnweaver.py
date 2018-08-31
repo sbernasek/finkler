@@ -181,4 +181,20 @@ class gnwSimulation:
 
         return PerturbationTimeSeries(self.t, self.sx[:, ind, :, :])
 
+    def reproduce(self, num_trials=10, T=1, X=100, Y=100):
+        """
+        Run equivalent dimensional simulation using SSA solver.
+
+        Args:
+        T, X, Y (int) - time, mRNA level, and protein level scaling constants
+
+        Returns:
+        ts (PerturbationTimeSeries) - nondimensionalized timeseries object
+        """
+
+        # run equivalent dimensional simulation
+        simulation = self.dimensionalize(T=T, X=X, Y=Y)
+        simulation.run(num_trials=num_trials)
+        return simulation.nondimensionalize(normalize=False)
+
 
