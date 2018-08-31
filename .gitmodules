@@ -1,1 +1,5 @@
 
+[submodule "solver"]
+	path = solver
+	url = git@github.com:sebastianbernasek/rxndiffusion.git
+	branch = finkler_solver
