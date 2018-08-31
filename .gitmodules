@@ -1,5 +1,1 @@
 
-[submodule "rxndiffusion"]
-	path = rxndiffusion
-	url = git@github.com:sebastianbernasek/rxndiffusion.git
-	branch = minimal

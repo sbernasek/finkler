@@ -1,13 +1,26 @@
 
 
 class SBML:
+    """
+    Compiles dictionary of reactions from XML file.
+
+    Attributes:
+    rxns (dict) - keys are reaction names, values are reaction parameters
+    """
 
     def __init__(self, root):
+        """
+        Args:
+        root (ElementTree) - root of SBML structure
+        """
+
         self.root = root
         self.base = root.tag.strip('sbml')
-        self.traverse()
+        self.rxns = None
+        self.compile_reactions()
 
-    def traverse(self):
+    def compile_reactions(self):
+        """ Parse XML to get reactions. """
         self.rxns = {}
         self._recurse(self.root, self._parse_model)
 
@@ -17,6 +30,8 @@ class SBML:
             f(child)
 
     def _parse_rxn(self, node):
+        """ Parse individual reaction element. """
+
         tag = node.tag.replace(self.base, '')
         rxn_id = node.attrib['id']
         rxn_dict = {'name': node.attrib['name']}
@@ -71,6 +86,8 @@ class SBML:
             self._recurse(node, self._parse_rxn)
 
     def _reporter(self, node):
+        """ Report contents of node and its children. """
         tag = node.tag.replace(self.base, '')
-        print(tag)
+        print('TAG', tag)
+        print('Attributes:', node.attrib)
         self._recurse(node, self._reporter)

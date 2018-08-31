@@ -9,10 +9,18 @@ import xml.etree.ElementTree as ET
 
 from .io import IO
 from .sbml import SBML
-from .dimensionalize import DimensionedCell, DimensionedSimulation
+from .simulate import Simulation as DimensionedSimulation
 from .timeseries import PerturbationTimeSeries
 
-class gnwData:
+
+class Data:
+    """
+    Container for all GNW data.
+
+    Attributes:
+    path (str) - path to GNW networks directory
+    network_paths (dict) - {network_id: path_to_network_directory}
+    """
 
     def __init__(self, path):
         self.path = path
@@ -28,10 +36,19 @@ class gnwData:
 
     @staticmethod
     def load_network(network_path, network_id):
-        return gnwNetwork(network_path, network_id)
+        return Network(network_path, network_id)
 
 
-class gnwNetwork:
+class Network:
+    """
+    Class defines a GNW network directory.
+
+    Attributes:
+
+    path (str) - path to GNW simulation directory
+    network_id (int) - network index
+    simulations (dict) - {simulation name: gnw.Simulation}
+    """
 
     def __init__(self, path, network_id):
         self.path = path
@@ -45,10 +62,47 @@ class gnwNetwork:
         get_genotype = lambda x: x.rsplit('/', 1)[-1][:2]
         get_name = lambda x: '_'.join([str(self.network_id), get_genotype(x)])
         ps = [(p, get_name(p)) for p in glob(join(self.path, '*_sim'))]
-        return {x[1][-2:]: gnwSimulation(*x) for x in ps}
+        return {x[1][-2:]: Simulation(*x) for x in ps}
 
 
-class gnwSimulation:
+class Simulation:
+    """
+    Class defines a GNW simulation, eg "Network 1 Wildtype".
+
+
+    Notes:
+    * GNW species are ordered (rna1... rnaN, protein1 ... proteinN) which differs from the solver order (rna1, protein1... rnaN, proteinN). The GNW order is preserved within this class but is converted to the solver order whenever state values are exported elsewhere.
+
+
+    Attributes:
+
+    path (str) - path to GNW simulation
+    name (str) - simulation prefix, eg "0_wt"
+
+    # simulation data
+    P (int) - number of perturbations
+    N (int) - number of trajectories
+    ptb (array of shape P x S) - perturbation values
+    norm (float) - GNW normalization constant
+
+    t (array of shape T) - GNW simulation timepoints
+
+    s (array of shape P x N x S x T) - GNW states with measurement noise
+    ssr (1-D array of length S) - GNW mRNA steady states
+    ssp (1-D array of length S) - GNW protein steady states
+    s_mean (array of shape P x N x S x T) - mean with measurement noise
+
+    sx (array of shape P x N x S x T) - GNW states pre-noise
+    sx_mean (array of shape P x N x S x T) - mean pre-noise
+    ssrx (1-D array of length S) - GNW mRNA steady states pre-noise
+    sspx (1-D array of length S) - GNW protein steady states pre-noise
+
+    # network structure
+    sbml (gnw.SBML instance) - network structure
+    edges (pd DataFrame) - list of all edges with boolean flag
+    connectivity (pd DataFrame) - list of +/- edges from goldstandard
+    labels (list) - alphanumeric labels for each gene
+    """
 
     def __init__(self, path, name):
         self.path = path
@@ -58,14 +112,13 @@ class gnwSimulation:
         self.sx_mean = self.sx.mean(axis=-2)
 
     def load(self):
+        """ Load GNW simulation directory. """
 
         # path constructor
         pgen = lambda x: join(self.path, x.format(self.name))
 
         # network structure
         self.sbml = self.load_sbml(pgen('{:s}.xml'))
-        #self.xml = self.load_xml(pgen('{:s}.xml'))
-        #self.sbml = self.load_sbml(pgen('{:s}_sbml_params.pkl'))
         edges = self.load_structure(pgen('{:s}_goldstandard.tsv'))
         self.edges = pd.DataFrame(edges, columns=('from', 'to', 'exists'))
         conn = self.load_structure(pgen('{:s}_goldstandard_signed.tsv'))
@@ -78,10 +131,10 @@ class gnwSimulation:
         self.labels, self.ptb, self.P, self.N = self.load_ptb(ptb_path)
 
         # steady states
-        self.ss_rna = self.load_ss(pgen('{:s}_wildtype.tsv'))
-        self.ss_p = self.load_ss(pgen('{:s}_proteins_wildtype.tsv'))
-        self.ss_rna_xnoise = self.load_ss(pgen('{:s}_noexpnoise_wildtype.tsv'))
-        self.ss_p_xnoise = self.load_ss(pgen('{:s}_noexpnoise_proteins_wildtype.tsv'))
+        self.ssr = self.load_ss(pgen('{:s}_wildtype.tsv'))
+        self.ssp = self.load_ss(pgen('{:s}_proteins_wildtype.tsv'))
+        self.ssrx = self.load_ss(pgen('{:s}_noexpnoise_wildtype.tsv'))
+        self.sspx = self.load_ss(pgen('{:s}_noexpnoise_proteins_wildtype.tsv'))
 
         # timeseries (with noise)
         t, sr = self.load_ts(pgen('{:s}_dream4_timeseries.tsv'))
@@ -96,18 +149,9 @@ class gnwSimulation:
         # load normalization
         self.norm = self.load_norm(pgen('{:s}_normalization_constant.tsv'))
 
-
     @staticmethod
     def load_sbml(path):
         return SBML(ET.parse(path).getroot())
-
-    # @staticmethod
-    # def load_sbml(sbml_path):
-    #     return IO.read_pkl(sbml_path)
-
-    # @staticmethod
-    # def load_xml(xml_path):
-    #     return ET.parse(xml_path).getroot()
 
     @staticmethod
     def load_structure(path):
@@ -165,36 +209,37 @@ class gnwSimulation:
                     et[mod] = self.connectivity.loc[(mod, product)].values[0]
                 rxn['edge_types'] = et
 
-    def build_dimensioned_cell(self, **kw):
-        """ Return dimensionalized network model. """
-        return DimensionedCell.from_sbml(self.sbml, **kw)
-
-    def dimensionalize(self, **kw):
-        """ Return dimensionalized simulation. """
-        return DimensionedSimulation(self, **kw)
-
     def get_timeseries(self):
         """ Returns timeseries object for plotting. """
-
         # sort into (r0, p0, ...rN, PN) order
         ind = np.array(reduce(add, zip(range(4), range(4, 8))))
-
         return PerturbationTimeSeries(self.t, self.sx[:, ind, :, :])
+
+    def dimensionalize(self, **scaling):
+        """ Return dimensioned simulation. """
+        return DimensionedSimulation.from_gnw(self, **scaling)
 
     def reproduce(self, num_trials=10, T=1, X=100, Y=100):
         """
-        Run equivalent dimensional simulation using SSA solver.
+        Run equivalent dimensioned simulation using SSA solver.
 
         Args:
-        T, X, Y (int) - time, mRNA level, and protein level scaling constants
+        num_trials (int) - number of stochastic trajectories
+        T, X, Y (float) - time, mRNA level, and protein level scaling constants
 
         Returns:
-        ts (PerturbationTimeSeries) - nondimensionalized timeseries object
+        nts (PerturbationTimeSeries) - nondimensionalized timeseries object
         """
 
-        # run equivalent dimensional simulation
-        simulation = self.dimensionalize(T=T, X=X, Y=Y)
-        simulation.run(num_trials=num_trials)
-        return simulation.nondimensionalize(normalize=False)
+        # create dimensional simulation
+        sim = self.dimensionalize(T=T, X=X, Y=Y)
 
+        # run simulation
+        ptbs = self.ptb[:, 0]
+        duration =  T * self.t.max()
+        ts = sim.run_multiple(ptbs, num_trials=num_trials, duration=duration)
 
+        # nondimensionalize
+        nts = ts.nondimensionalize(T=T, X=X, Y=Y, normalize=False)
+
+        return nts

@@ -3,6 +3,7 @@ import pandas as pd
 
 
 class IO:
+    """ Container for filehandling functions. """
 
     def read_tsv(path):
         with open(path, 'r') as tsv:
